@@ -1,0 +1,4 @@
+export const SEFAZ_SERVICES: Record<string, { name: string; layout: string; producao: string; homologacao: string }>;
+export function distributionEnvelope(body: { source: string; environment: string; cnpj: string; uf_code: string; nsu: string }): { url: string; action: string; xml: string };
+export function parseDistributionResponse(xml: string): { code: string; message: string; last_nsu: string; max_nsu: string; documents: { nsu: string; schema: string; xml_base64: string }[] };
+export function sefazDistribution(body: unknown, dispatcher: unknown): Promise<ReturnType<typeof parseDistributionResponse>>;

@@ -7,6 +7,7 @@ import { Agent, request } from "undici";
 import forge from "node-forge";
 import { sefazDistribution } from "./sefaz.mjs";
 import { adnManifest, sefazEvent } from "./manifest.mjs";
+import { bearerOk, createNonceStore, createRateLimiter, readRawBody, verifySignature, wipe } from "./security.mjs";
 
 const PORT = Number(process.env.PORT ?? 8080);
 const TOKEN = process.env.BRIDGE_TOKEN;
@@ -48,16 +49,12 @@ function tlsOptions(pfx, password) {
   return { pfx, passphrase: password };
 }
 
-function agentFor({ pfx_base64, password }) {
-  return new Agent({ connect: { ...tlsOptions(Buffer.from(pfx_base64, "base64"), password), timeout: 20_000 } });
+function agentFor(pfx, password) {
+  return new Agent({ connect: { ...tlsOptions(pfx, password), timeout: 20_000 } });
 }
 
-async function readJson(req) {
-  const chunks = [];
-  let size = 0;
-  for await (const c of req) { size += c.length; if (size > 2_000_000) throw new Error("payload grande demais"); chunks.push(c); }
-  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
-}
+const nonces = createNonceStore();
+const allow = createRateLimiter({ limit: Number(process.env.BRIDGE_RATE_LIMIT ?? 60), windowMs: 60_000 });
 
 function send(res, status, obj) {
   res.writeHead(status, { "content-type": "application/json" });
@@ -68,15 +65,25 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === "GET" && req.url === "/health") return send(res, 200, { ok: true });
     if (req.method !== "POST") return send(res, 405, { error: "method" });
-    if (req.headers.authorization !== `Bearer ${TOKEN}`) return send(res, 401, { error: "unauthorized" });
-    const body = await readJson(req);
+    const ip = String(req.headers["x-forwarded-for"] ?? req.socket.remoteAddress ?? "").split(",")[0].trim();
+    if (!allow(ip)) return send(res, 429, { error: "muitas requisições" });
+    if (!bearerOk(req.headers.authorization, TOKEN)) return send(res, 401, { error: "unauthorized" });
+    const raw = await readRawBody(req);
+    const sigError = verifySignature({ token: TOKEN, method: req.method, path: req.url, rawBody: raw, headers: req.headers, nonces });
+    if (sigError) { wipe(raw); return send(res, 401, { error: sigError }); }
+    const body = JSON.parse(raw.toString("utf8"));
+    wipe(raw);
     const hosts = HOSTS[body.environment];
     if (!hosts) return send(res, 400, { error: "environment inválido" });
-    const dispatcher = agentFor(body);
+    const pfx = Buffer.from(String(body.pfx_base64 ?? ""), "base64");
+    const password = String(body.password ?? "");
+    delete body.pfx_base64;
+    delete body.password;
+    const dispatcher = agentFor(pfx, password);
     try {
       if (req.url === "/sefaz/dfe") return send(res, 200, await sefazDistribution(body, dispatcher));
-      if (req.url === "/sefaz/evento") return send(res, 200, await sefazEvent(body, dispatcher, Buffer.from(body.pfx_base64, "base64"), body.password));
-      if (req.url === "/adn/manifest") return send(res, 200, await adnManifest(body, dispatcher, hosts, Buffer.from(body.pfx_base64, "base64"), body.password));
+      if (req.url === "/sefaz/evento") return send(res, 200, await sefazEvent(body, dispatcher, pfx, password));
+      if (req.url === "/adn/manifest") return send(res, 200, await adnManifest(body, dispatcher, hosts, pfx, password));
       if (req.url === "/adn/dfe") {
         const nsu = Math.max(0, Number(body.nsu));
         const qs = new URLSearchParams(DFE_QUERY);
@@ -100,8 +107,11 @@ const server = http.createServer(async (req, res) => {
       return send(res, 404, { error: "rota" });
     } finally {
       await dispatcher.close();
+      wipe(pfx);
     }
   } catch (e) {
+    if (e?.status === 413) return send(res, 413, { error: "payload grande demais" });
+    if (e instanceof SyntaxError) return send(res, 400, { error: "JSON inválido" });
     const msg = String(e?.code ?? e?.message ?? e);
     const friendly = /mac verify|password|PKCS12/i.test(msg) ? "Falha ao abrir o certificado (senha/arquivo)." : `Falha de conexão: ${msg}`;
     return send(res, 502, { error: friendly });

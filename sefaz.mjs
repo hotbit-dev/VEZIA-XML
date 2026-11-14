@@ -1,5 +1,6 @@
 import { request } from "undici";
 import { XMLParser } from "fast-xml-parser";
+import { assertSafeXml } from "./security.mjs";
 
 export const SEFAZ_SERVICES = {
   nfe: { name: "NFe", layout: "1.01", producao: "https://www1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx", homologacao: "https://hom1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx" },
@@ -28,13 +29,13 @@ function findRet(value) {
   if (!value || typeof value !== "object") return null;
   if (value.retDistDFeInt) return typeof value.retDistDFeInt === "string" ? findRet(parser.parse(value.retDistDFeInt)) : value.retDistDFeInt;
   for (const [key, item] of Object.entries(value)) {
-    if (typeof item === "string" && /Result$/.test(key) && item.includes("retDistDFeInt")) { const found = findRet(parser.parse(item)); if (found) return found; }
+    if (typeof item === "string" && /Result$/.test(key) && item.includes("retDistDFeInt")) { const found = findRet(parser.parse(assertSafeXml(item))); if (found) return found; }
     const found = findRet(item); if (found) return found;
   }
   return null;
 }
 export function parseDistributionResponse(xml) {
-  if (/<!DOCTYPE|<!ENTITY/i.test(xml)) throw new Error("Resposta XML SEFAZ inválida.");
+  xml = assertSafeXml(xml);
   const ret = findRet(parser.parse(xml));
   if (!ret) throw new Error("Resposta inesperada do serviço SEFAZ.");
   const docs = ret.loteDistDFeInt?.docZip;
