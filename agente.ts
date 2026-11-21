@@ -53,7 +53,7 @@ async function djen(uf: string, numero: string, inicio: string, fim: string) {
     const u = new URL("https://comunicaapi.pje.jus.br/api/v1/comunicacao");
     Object.entries({ numeroOab: numero.replace(/\D/g, ""), ufOab: uf, dataDisponibilizacaoInicio: inicio, dataDisponibilizacaoFim: fim, itensPorPagina: "100", pagina: String(pagina) }).forEach(([k, v]) => u.searchParams.set(k, v));
     try {
-      const r = await fetch(u, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(30000) });
+      const r = await fetch(u, { headers: { accept: "application/json", "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36" }, signal: AbortSignal.timeout(30000) });
       if (r.status === 429) { await pausa(2000 * pagina); pagina--; continue; }
       if (!r.ok) throw new Error(String(r.status));
       const j = await r.json() as { count?: number; items?: unknown[] };
