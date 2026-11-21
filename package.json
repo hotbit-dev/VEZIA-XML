@@ -6,7 +6,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "start": "node server.mjs"
+    "start": "node server.mjs & bun run agente.ts"
   },
   "dependencies": {
     "fast-xml-parser": "^5.11.2",
