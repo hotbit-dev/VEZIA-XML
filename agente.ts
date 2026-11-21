@@ -204,7 +204,7 @@ function pagina() {
 <div class="c"><b>Registro</b><pre>${esc(logs.join("\n")) || "Sem eventos ainda."}</pre></div></main></body></html>`;
 }
 
-Bun.serve({ port: NUVEM ? Number(process.env["PORT"] || 4100) : PORTA, hostname: NUVEM ? "0.0.0.0" : "127.0.0.1", async fetch(req) {
+Bun.serve({ port: NUVEM ? Number(process.env["PORT"] || 4101) : PORTA, hostname: NUVEM ? "0.0.0.0" : "127.0.0.1", async fetch(req) {
   if (NUVEM) return Response.json({ ok: true, versao: VERSAO });
   const u = new URL(req.url);
   if (!["127.0.0.1:4100", "localhost:4100"].includes(u.host)) return new Response("Acesso negado", { status: 403 });
